@@ -55,6 +55,9 @@ LexemeList analyseur_lexical(const char *expression) {
         } else if (*ptr == ')') {
             add_lexeme(&list, "PF", ")");
             ptr++;
+        } else if (match_regex(ptr, "^→")) {
+            add_lexeme(&list, "PRODUIT", "PRODUIT");
+            ptr += strlen("→");
         } else if (match_regex(ptr, "^[a-zA-Z][a-zA-Z0-9]*")) {
             char buffer[MAX_LEXEME_LEN] = {0};
             sscanf(ptr, "%[a-zA-Z0-9]", buffer);

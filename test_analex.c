@@ -1,10 +1,10 @@
 #include <stdio.h>
-#include "analex.c"
+#include "analex.h" 
 
 int main() {
     const char *test_cases[] = {
         "(q12 ∧ r5) ⇒ (¬a ∧ c)",
-        "p1 ⇒ p2",
+        "p1 → p2",
         "p1 ∨ (p2 ∧ p3)",
         "p1 ∧ ¬p2",
         "invalid & character"

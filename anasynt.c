@@ -1,17 +1,46 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "analex.c"
+#include "analex.h"
 
+// Lexeme list
+LexemeList lexeme_list;
+// Current position
+int current_pos;
 
+// Node structure for the syntax tree
 typedef struct Node {
-    char type[20];           // Node type ("Prop", "Op", "PO", "PF")
-    char value[MAX_LEXEME_LEN]; // Node value ("p1", "ET", etc.)
-    struct Node *left;       // Left child node
-    struct Node *right;      // Right child node
+    char type[20];               // Node type ("Prop", "Op", etc.)
+    char value[MAX_LEXEME_LEN];  // Node value ("p1", "ET", etc.)
+    struct Node *left;           // Left child node
+    struct Node *right;          // Right child node
 } Node;
 
-// Create a syntax tree node
+// Function declarations
+Node* factor();
+Node* term();
+Node* expression();
+void print_tree(Node *root, int depth);
+void destroy_tree(Node *root);
+
+// Utility function: Get the current lexeme
+Lexeme current_token() {
+    if (current_pos >= 0 && current_pos < lexeme_list.count) {
+        return lexeme_list.lexemes[current_pos];
+    } else {
+        Lexeme eof = {"EOF", ""};
+        return eof;
+    }
+}
+
+// Consume the current lexeme and move to the previous one
+void consume() {
+    if (current_pos >= 0) {
+        current_pos--;
+    }
+}
+
+// Create a new syntax tree node
 Node* create_node(const char *type, const char *value) {
     Node *node = (Node*)malloc(sizeof(Node));
     if (!node) {
@@ -19,18 +48,74 @@ Node* create_node(const char *type, const char *value) {
         exit(EXIT_FAILURE);
     }
     strncpy(node->type, type, sizeof(node->type) - 1);
+
     strncpy(node->value, value, sizeof(node->value) - 1);
     node->left = NULL;
     node->right = NULL;
     return node;
 }
 
-// Destroy the syntax tree
-void destroy_tree(Node *root) {
-    if (!root) return;
-    destroy_tree(root->left);
-    destroy_tree(root->right);
-    free(root);
+// Parse <factor>
+Node* factor() {
+    Lexeme t = current_token();
+    Node *node = NULL; 
+
+    if (strcmp(t.type, "Prop") == 0) { // Handle PROP
+        node = create_node("Prop", t.value);
+        consume(); // Consume PROP
+    } 
+    else if (strcmp(t.type, "PF") == 0) { // Handle parentheses
+        consume(); // Consume ")"
+        node = term();
+        if (strcmp(current_token().type, "PO") != 0) {
+            fprintf(stderr, "Error: Missing left parenthesis at position %d\n", current_pos);
+            exit(EXIT_FAILURE);
+        }
+        consume(); // Consume "("
+    } 
+    else {
+        fprintf(stderr, "Error: Invalid factor at position %d\n", current_pos);
+        exit(EXIT_FAILURE);
+    }
+
+    while (strcmp(current_token().value, "NON") == 0) { // Handle "NON" operator
+        consume(); // Consume "NON"
+        Node *node1 = create_node("Op", "NON");
+        node1->right = node; // "NON" is unary, attach the right node
+        node = node1; 
+    }
+
+    return node; 
+}
+
+// Parse <term>
+Node* term() {
+    Node *node = factor();
+
+    if (strcmp(current_token().type, "Op") == 0 && strcmp(current_token().value, "NON") != 0) {
+        Lexeme t = current_token();
+        consume();
+        Node *op_node = create_node("Op", t.value);        
+        op_node->left = term();
+        op_node->right = node;
+        node = op_node;
+    }
+    return node;
+}
+
+// Parse <expression>
+Node* expression() {
+    Node *node = term();
+
+    if (strcmp(current_token().type, "PRODUIT") == 0 ) {
+        Lexeme t = current_token();
+        consume();
+        Node *op_node = create_node("Op", t.value);
+        op_node->left = term();
+        op_node->right = node;
+        node = op_node;
+    }
+    return node;
 }
 
 // Print the syntax tree (for debugging)
@@ -42,84 +127,37 @@ void print_tree(Node *root, int depth) {
     print_tree(root->right, depth + 1);
 }
 
-// Main function: construct the syntax tree
-Node* parse_expression(LexemeList *list, int *index);
-
-// Parse a factor: an expression in parentheses or a propositional variable
-Node* parse_factor(LexemeList *list, int *index) {
-    if (*index >= list->count) {
-        fprintf(stderr, "Syntax error: incomplete expression.\n");
-        exit(EXIT_FAILURE);
-    }
-    Lexeme *lex = &list->lexemes[*index];
-
-    if (strcmp(lex->type, "Prop") == 0) {
-        // Return a propositional variable node
-        (*index)++;
-        return create_node("Prop", lex->value);
-    } else if (strcmp(lex->type, "PO") == 0) {
-        // Parse the expression inside parentheses
-        (*index)++;
-        Node *node = parse_expression(list, index);
-        if (*index >= list->count || strcmp(list->lexemes[*index].type, "PF") != 0) {
-            fprintf(stderr, "Syntax error: missing closing parenthesis.\n");
-            exit(EXIT_FAILURE);
-        }
-        (*index)++;
-        return node;
-    } else if (strcmp(lex->type, "Op") == 0 && strcmp(lex->value, "NON") == 0) {
-        // Parse the NOT operation
-        (*index)++;
-        Node *node = create_node("Op", "NON");
-        node->right = parse_factor(list, index);
-        return node;
-    }
-
-    fprintf(stderr, "Syntax error: unexpected token '%s'.\n", lex->value);
-    exit(EXIT_FAILURE);
+// Destroy the syntax tree and free memory
+void destroy_tree(Node *root) {
+    if (!root) return;
+    destroy_tree(root->left);
+    destroy_tree(root->right);
+    free(root);
 }
 
-// Parse a term: handle the `AND` operation
-Node* parse_term(LexemeList *list, int *index) {
-    Node *node = parse_factor(list, index);
-    while (*index < list->count && strcmp(list->lexemes[*index].value, "ET") == 0) {
-        Lexeme *lex = &list->lexemes[*index];
-        (*index)++;
-        Node *op_node = create_node("Op", lex->value);
-        op_node->left = node;
-        op_node->right = parse_factor(list, index);
-        node = op_node;
+// Run function: Check if input conforms to the grammar
+int run(LexemeList list) {
+    lexeme_list = list;
+    current_pos = lexeme_list.count - 1; // Start from the end (right-to-left parsing)
+
+    // Test if input conforms to the grammar
+    expression();
+
+    // Verify if all lexemes are consumed
+    if (strcmp(current_token().type, "EOF") != 0 && current_pos != -1) {
+        fprintf(stderr, "Error: Unparsed extra characters\n");
+        return EXIT_FAILURE;
     }
-    return node;
+
+    printf("Parsing completed: Syntax is correct!\n");
+    return 0;
 }
 
-// Parse an expression: handle the `OR` and `IMPLIES` operations
-Node* parse_expression(LexemeList *list, int *index) {
-    Node *node = parse_term(list, index);
-    while (*index < list->count) {
-        Lexeme *lex = &list->lexemes[*index];
-        if (strcmp(lex->value, "OU") == 0 || strcmp(lex->value, "IMPLIQUE") == 0) {
-            (*index)++;
-            Node *op_node = create_node("Op", lex->value);
-            op_node->left = node;
-            op_node->right = parse_term(list, index);
-            node = op_node;
-        } else {
-            break;
-        }
-    }
-    return node;
-}
-
-// Syntax analysis function interface
-Node* analyseur_syntaxique(LexemeList *list) {
-    int index = 0;
-    Node *root = parse_expression(list, &index);
-    if (index < list->count) {
-        fprintf(stderr, "Syntax error: remaining tokens not analyzed.\n");
-        exit(EXIT_FAILURE);
-    }
-    return root;
+// Generate the syntax tree
+Node* analyseur_syntaxique(LexemeList list) {
+    lexeme_list = list;
+    current_pos = lexeme_list.count - 1;
+    return expression();
 }
 
 // Export the syntax tree to a Graphviz .dot file
@@ -161,3 +199,4 @@ void export_tree_to_dot(Node *root, const char *filename) {
     printf("Tree exported to '%s'.\n", filename);
     printf("You can generate a graph with: dot -Tpng %s -o tree.png\n", filename);
 }
+
