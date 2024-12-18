@@ -28,6 +28,12 @@ anasynt: anasynt.o analex.o
 test_anasynt: test_anasynt.o anasynt.o analex.o
 	$(CC) $(LDFLAGS) $^ -o $@
 
+compilateur: compilateur.o anasynt.o analex.o
+	$(CC) $(LDFLAGS) $^ -o $@
+
+test_compilateur: test_compilateur.o compilateur.o anasynt.o analex.o
+	$(CC) $(LDFLAGS) $^ -o $@
+
 # General rule for object files
 %.o: %.c
 	$(CC) $(CFLAGS) $< -o $@
